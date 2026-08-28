@@ -74,6 +74,8 @@ class LaiaView(tk.Canvas):
 
         if self.machine.state is AppState.WAITING_FOR_HANDS:
             self._waiting(width, height)
+        elif self.machine.state is AppState.INCOMPLETE:
+            self._incomplete(width, height)
         elif self.machine.state in {AppState.WASHING, AppState.CORRECTION}:
             self._tutorial(width, height)
         else:
@@ -205,6 +207,50 @@ class LaiaView(tk.Canvas):
                              fill=fill, outline=TEAL, width=2)
             self.create_text(x, y, text=str(step), fill=WHITE if step == current else FOREST,
                              font=self._font(width, 12, "bold"))
+
+    def _incomplete(self, width: int, height: int) -> None:
+        portrait = height > width
+        self.create_text(
+            width / 2,
+            height * (0.19 if portrait else 0.23),
+            text="¡Casi!",
+            fill=CORAL,
+            font=self._font(width, 31, "bold"),
+        )
+        self.create_text(
+            width / 2,
+            height * (0.285 if portrait else 0.34),
+            text="Nos faltaron algunos movimientos.",
+            fill=FOREST,
+            font=self._font(width, 22, "bold"),
+            width=width * 0.84,
+            justify="center",
+        )
+        self.create_text(
+            width / 2,
+            height * (0.37 if portrait else 0.43),
+            text="¿Lo intentamos otra vez?",
+            fill=TEAL,
+            font=self._font(width, 20, "bold"),
+            width=width * 0.84,
+            justify="center",
+        )
+        self._place_image(
+            image_path("waiting"),
+            width / 2,
+            height * (0.63 if portrait else 0.69),
+            int(width * (0.58 if portrait else 0.34)),
+            int(height * (0.40 if portrait else 0.43)),
+        )
+        self.create_text(
+            width / 2,
+            height * (0.90 if portrait else 0.93),
+            text="Acerca tus manos para comenzar de nuevo",
+            fill=MUTED,
+            font=self._font(width, 15, "bold"),
+            width=width * 0.86,
+            justify="center",
+        )
 
     def _success(self, width: int, height: int) -> None:
         portrait = height > width

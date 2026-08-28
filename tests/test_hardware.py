@@ -48,6 +48,10 @@ class LedSignalTests(unittest.TestCase):
             time.sleep(0.08)
             self.assertIn("on", error.events)
             self.assertGreaterEqual(error.events.count("off"), 1)
+            leds.apply(AppState.INCOMPLETE)
+            time.sleep(0.02)
+            self.assertGreaterEqual(success.events.count("off"), 1)
+            self.assertGreaterEqual(error.events.count("off"), 1)
             leds.close()
 
 
