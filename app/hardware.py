@@ -140,7 +140,15 @@ class AudioPlayer:
 
 
 class CameraSource:
-    """Abre la fuente solicitada y entrega siempre frames BGR."""
+    """Abre la fuente solicitada y entrega siempre frames BGR uint8.
+
+    En la Raspberry, el stream de Picamera2 anunciado como ``RGB888`` llega
+    a ``capture_array`` con orden BGR en sus tres bytes intercalados, igual
+    que los frames de OpenCV/V4L2. Por eso el contrato de esta clase es BGR y
+    no se hace ninguna conversión al leer Picamera2. Los consumidores que
+    necesitan RGB (MediaPipe Tasks y la GUI) hacen una única conversión en
+    su propio borde.
+    """
 
     def __init__(self, width: int, height: int, fps: float, camera_index: int = 0, source: str = "auto") -> None:
         self.width = width
@@ -202,8 +210,7 @@ class CameraSource:
 
     def read(self):
         if self._picam is not None:
-            rgb = self._picam.capture_array("main")
-            return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            return self._picam.capture_array("main")
         ok, frame = self._capture.read()
         return frame if ok else None
 
@@ -215,4 +222,3 @@ class CameraSource:
                 self._picam.close()
         if self._capture is not None:
             self._capture.release()
-

@@ -387,10 +387,14 @@ try:
 
     while True:
 
-        frame_rgb = camera.capture_array()
+        # Picamera2 entrega el buffer del stream RGB888 en orden BGR en esta
+        # Raspberry. Mantener el contrato BGR del backend y convertir una sola
+        # vez al formato SRGB que exige MediaPipe Tasks.
+        frame_bgr = camera.capture_array()
 
         # Mirror: más intuitivo para una persona frente a la pantalla.
-        frame_rgb = cv2.flip(frame_rgb, 1)
+        frame_bgr = cv2.flip(frame_bgr, 1)
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
         timestamp_ms = int(time.monotonic() * 1000)
 
@@ -404,10 +408,7 @@ try:
             timestamp_ms,
         )
 
-        frame = cv2.cvtColor(
-            frame_rgb,
-            cv2.COLOR_RGB2BGR,
-        )
+        frame = frame_bgr.copy()
 
         # ----------------------------------------------------
         # Dibujar landmarks de todas las manos detectadas
