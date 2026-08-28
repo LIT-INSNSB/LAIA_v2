@@ -24,6 +24,9 @@ class AssetContractTests(unittest.TestCase):
     def test_success_never_uses_step_six(self) -> None:
         self.assertEqual(expected_asset("SUCCESS", 6).name, "manos_limpias.png")
 
+    def test_incomplete_uses_waiting_asset(self) -> None:
+        self.assertEqual(expected_asset("INCOMPLETE", 1).name, "silueta.png")
+
 
 if __name__ == "__main__":
     unittest.main()

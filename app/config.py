@@ -63,11 +63,12 @@ class RuntimeConfig:
     # Un lavado nunca puede aprobarse antes de este tiempo continuo con las
     # manos visibles, aunque el modelo haya encadenado varias predicciones.
     minimum_washing_seconds: float = 20.0
-    # El modelo puede fallar en una ventana; basta con identificar 4 de los
-    # 6 pasos, o declarar explícitamente una cobertura de pasos >= 80 %.
+    # Compatibilidad con configuraciones antiguas. Estos valores pueden
+    # conservarse como referencia/diagnóstico, pero nunca autorizan SUCCESS.
     minimum_steps_for_success: int = 4
     minimum_step_coverage: float = 0.80
     success_hold_seconds: float = 8.0
+    incomplete_hold_seconds: float = 5.0
 
 
 def image_path(key: str) -> Path:
@@ -92,6 +93,8 @@ def expected_asset(state: str, expected_step: int) -> Path:
         return tutorial_for_step(expected_step)
     if state == "SUCCESS":
         return image_path("success")
+    if state == "INCOMPLETE":
+        return image_path("waiting")
     raise ValueError(f"estado desconocido: {state}")
 
 
