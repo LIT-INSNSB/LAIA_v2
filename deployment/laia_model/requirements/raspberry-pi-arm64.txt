@@ -1,0 +1,8 @@
+# Raspberry Pi OS 64-bit / Python 3.11 target.
+# MediaPipe 1.0.1 and ONNX Runtime 1.28.0 publish official Linux ARM64 wheels.
+mediapipe==1.0.1
+onnxruntime==1.28.0
+numpy==1.26.4
+# Explicit because the CLI decodes images/video with cv2. This is also the
+# MediaPipe-compatible ARM64 wheel selected under the NumPy 1.26 constraint.
+opencv-contrib-python==4.11.0.86

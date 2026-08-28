@@ -1,0 +1,51 @@
+{
+  "classifier_window_agreement": 0.972972972972973,
+  "classifier_windows": 74,
+  "details": [
+    {
+      "classifier_window_agreement": 0.96,
+      "classifier_windows": 25,
+      "frames": 314,
+      "hand_count_agreement": 0.9681528662420382,
+      "legacy_coverage_2": 0.01910828025477707,
+      "legacy_coverage_ge1": 0.08280254777070063,
+      "matched_landmark_distance_p50_image_normalized": 0.0034900126047432423,
+      "matched_landmark_distance_p95_image_normalized": 0.017926080711185927,
+      "tasks_coverage_2": 0.022292993630573247,
+      "tasks_coverage_ge1": 0.09872611464968153,
+      "video": "2020-07-03_20-09-59_camera102"
+    },
+    {
+      "classifier_window_agreement": 1.0,
+      "classifier_windows": 25,
+      "frames": 312,
+      "hand_count_agreement": 0.9326923076923077,
+      "legacy_coverage_2": 0.20512820512820512,
+      "legacy_coverage_ge1": 0.4583333333333333,
+      "matched_landmark_distance_p50_image_normalized": 0.0007470526616089046,
+      "matched_landmark_distance_p95_image_normalized": 0.01522041745483874,
+      "tasks_coverage_2": 0.21153846153846154,
+      "tasks_coverage_ge1": 0.4551282051282051,
+      "video": "2020-07-06_12-53-18_camera100"
+    },
+    {
+      "classifier_window_agreement": 0.9583333333333334,
+      "classifier_windows": 24,
+      "frames": 301,
+      "hand_count_agreement": 0.9401993355481728,
+      "legacy_coverage_2": 0.0,
+      "legacy_coverage_ge1": 0.12624584717607973,
+      "matched_landmark_distance_p50_image_normalized": 0.016478873789310455,
+      "matched_landmark_distance_p95_image_normalized": 0.06095061078667641,
+      "tasks_coverage_2": 0.0033222591362126247,
+      "tasks_coverage_ge1": 0.16943521594684385,
+      "video": "2020-07-06_23-21-12_camera103"
+    }
+  ],
+  "frames": 927,
+  "hand_count_agreement": 0.9471413160733549,
+  "interpretation": "agreement proxy only; neither MediaPipe API is ground truth",
+  "matched_landmark_distance_p50_image_normalized": 0.0014038149965927005,
+  "matched_landmark_distance_p95_image_normalized": 0.027950686030089846,
+  "videos": 3
+}

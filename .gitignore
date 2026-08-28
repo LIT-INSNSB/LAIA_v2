@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+deployment/laia_model/.venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Runtime / temporary
+*.log
+*.tmp
+*.swp
+.lgd-*
+
+# LAIA generated/runtime files
+logs/*.log
+logs/*.orig
+logs/*.rej
+logs/*.patch-reject
+logs/*.pre-*
+logs/imported-desktop-log-directory/
+
+# Test captures
+scripts/test.jpg
+
+# FIFOs / temporary pipes
+.lgd-nfy0
+scripts/.lgd-nfy0

@@ -1,0 +1,160 @@
+{
+  "argmax_agreement": 1.0,
+  "details": [
+    {
+      "argmax_equal": true,
+      "class_id": 0,
+      "example": "class0_mode0_01.npz",
+      "max_logit_abs_difference": 4.76837158203125e-06,
+      "max_probability_abs_difference": 1.949956640601158e-09
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 0,
+      "example": "class0_mode1_00.npz",
+      "max_logit_abs_difference": 6.67572021484375e-06,
+      "max_probability_abs_difference": 1.6930901125533637e-15
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 0,
+      "example": "class0_mode2_02.npz",
+      "max_logit_abs_difference": 5.7220458984375e-06,
+      "max_probability_abs_difference": 1.951563910473908e-17
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 0,
+      "example": "class1_mode0_04.npz",
+      "max_logit_abs_difference": 5.7220458984375e-06,
+      "max_probability_abs_difference": 1.2434497875801753e-14
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 1,
+      "example": "class1_mode1_03.npz",
+      "max_logit_abs_difference": 3.814697265625e-06,
+      "max_probability_abs_difference": 4.163336342344337e-16
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 1,
+      "example": "class1_mode2_05.npz",
+      "max_logit_abs_difference": 3.814697265625e-06,
+      "max_probability_abs_difference": 2.4868995751603507e-13
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 2,
+      "example": "class2_mode0_08.npz",
+      "max_logit_abs_difference": 3.814697265625e-06,
+      "max_probability_abs_difference": 1.1368683772161603e-12
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 2,
+      "example": "class2_mode1_06.npz",
+      "max_logit_abs_difference": 7.62939453125e-06,
+      "max_probability_abs_difference": 3.513902016216475e-26
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 2,
+      "example": "class2_mode2_07.npz",
+      "max_logit_abs_difference": 1.9073486328125e-06,
+      "max_probability_abs_difference": 2.9103830456733704e-10
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 0,
+      "example": "class3_mode0_10.npz",
+      "max_logit_abs_difference": 3.814697265625e-06,
+      "max_probability_abs_difference": 1.5825207810848951e-10
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 3,
+      "example": "class3_mode1_09.npz",
+      "max_logit_abs_difference": 3.814697265625e-06,
+      "max_probability_abs_difference": 7.771561172376096e-16
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 3,
+      "example": "class3_mode2_11.npz",
+      "max_logit_abs_difference": 5.0067901611328125e-06,
+      "max_probability_abs_difference": 3.439026841078885e-12
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 4,
+      "example": "class4_mode0_13.npz",
+      "max_logit_abs_difference": 3.814697265625e-06,
+      "max_probability_abs_difference": 6.705522537231445e-08
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 4,
+      "example": "class4_mode1_12.npz",
+      "max_logit_abs_difference": 9.5367431640625e-06,
+      "max_probability_abs_difference": 5.4569682106375694e-12
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 4,
+      "example": "class4_mode2_14.npz",
+      "max_logit_abs_difference": 5.7220458984375e-06,
+      "max_probability_abs_difference": 1.865174681370263e-14
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 4,
+      "example": "class5_mode0_16.npz",
+      "max_logit_abs_difference": 5.7220458984375e-06,
+      "max_probability_abs_difference": 8.195638656616211e-08
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 0,
+      "example": "class5_mode1_15.npz",
+      "max_logit_abs_difference": 3.814697265625e-06,
+      "max_probability_abs_difference": 5.002220859751105e-12
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 5,
+      "example": "class5_mode2_17.npz",
+      "max_logit_abs_difference": 2.86102294921875e-06,
+      "max_probability_abs_difference": 1.1937117960769683e-12
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 4,
+      "example": "class6_mode0_20.npz",
+      "max_logit_abs_difference": 3.814697265625e-06,
+      "max_probability_abs_difference": 3.4924596548080444e-10
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 6,
+      "example": "class6_mode1_19.npz",
+      "max_logit_abs_difference": 5.7220458984375e-06,
+      "max_probability_abs_difference": 2.949029909160572e-17
+    },
+    {
+      "argmax_equal": true,
+      "class_id": 6,
+      "example": "class6_mode2_18.npz",
+      "max_logit_abs_difference": 3.814697265625e-06,
+      "max_probability_abs_difference": 7.318364664277155e-19
+    }
+  ],
+  "examples": 21,
+  "max_logit_abs_difference": 9.5367431640625e-06,
+  "max_probability_abs_difference": 8.195638656616211e-08,
+  "status": "PASS",
+  "thresholds": {
+    "argmax_agreement": 1.0,
+    "max_probability_abs_difference": 1e-05
+  }
+}

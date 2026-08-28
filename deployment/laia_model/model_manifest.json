@@ -1,0 +1,203 @@
+{
+  "manifest_schema": "LAIA-deployment-manifest-v1",
+  "model_version": "laia-lightstgcnv2-pose-features-v2-v1",
+  "created_at": "2026-08-20T04:32:51-05:00",
+  "framework": {
+    "training": "PyTorch 2.1.2+cu121",
+    "deployment": "ONNX Runtime CPU",
+    "onnx_opset": 17
+  },
+  "architecture": {
+    "name": "LightSTGCNV2",
+    "parameter_count": 565431,
+    "nodes": 42,
+    "hands": 2,
+    "landmarks_per_hand": 21,
+    "streams": {
+      "joint_features": ["x", "y", "node_valid"],
+      "motion_features": ["dx_per_second", "dy_per_second", "motion_valid"],
+      "bone_features": ["dx_parent", "dy_parent", "bone_valid"]
+    },
+    "stream_stem_channels": 16,
+    "channels": [64, 96, 128, 128],
+    "temporal_kernel_size": 9,
+    "temporal_strides": [1, 1, 2, 1],
+    "classifier_hidden_channels": 96,
+    "dropout": 0.3,
+    "masked_pooling": true,
+    "cross_hand_edges": "corresponding_joints",
+    "global_interaction_attention": false
+  },
+  "classes": [
+    {"class_id": 0, "class_name": "other_hand_washing_movement"},
+    {"class_id": 1, "class_name": "palm_to_palm"},
+    {"class_id": 2, "class_name": "palm_over_dorsum_fingers_interlaced"},
+    {"class_id": 3, "class_name": "palm_to_palm_fingers_interlaced"},
+    {"class_id": 4, "class_name": "backs_of_fingers_to_opposing_palm"},
+    {"class_id": 5, "class_name": "rotational_rubbing_of_thumb"},
+    {"class_id": 6, "class_name": "fingertips_to_palm"}
+  ],
+  "task_contract": {
+    "name": "who6_pose_with_other_v1",
+    "raw_label_mapping": {"0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6},
+    "excluded_raw_labels": [7],
+    "raw_label_preserved_upstream": true,
+    "operating_context": "known_hand_washing_episode",
+    "warning": "class 0 is other hand-washing movement, not a not-washing class"
+  },
+  "input_contract": {
+    "frame_input": "BGR uint8 HxWx3",
+    "pose_input": {
+      "keypoints_xy_normalized": "float32 (source_frames,2,21,2)",
+      "hand_present": "bool or uint8 (source_frames,2)",
+      "coordinate_convention": "image-normalized x,y; no clipping",
+      "slot_policy": "currently observed stable track IDs compacted by track order; slots are not anatomical Left/Right and can compact after dropout"
+    },
+    "model_inputs": {
+      "joint_features": "float32 (N,3,32,42)",
+      "motion_features": "float32 (N,3,32,42)",
+      "bone_features": "float32 (N,3,32,42)",
+      "node_valid": "bool (N,32,42)"
+    },
+    "temporal": {
+      "window_duration_seconds": 1.5,
+      "output_steps": 32,
+      "prediction_stride_seconds": 0.375,
+      "resampling": "linear only between two valid neighboring observations"
+    }
+  },
+  "preprocessing": {
+    "schema": "PSKUS-pose-features-v2",
+    "aspect_correction": true,
+    "centering": "common_two_hand_window_palm_center",
+    "scale": "median_palm_size_both_hands",
+    "missing_fill_value": 0.0,
+    "clipping": false,
+    "z_used": false,
+    "raw_handedness_used": false,
+    "anatomical_left_right_assumed": false
+  },
+  "output_contract": {
+    "raw_output": "seven float32 logits",
+    "decision": "argmax softmax",
+    "confidence_field": "confidence_uncalibrated",
+    "confidence_calibrated": false,
+    "recommended_confidence_threshold": null,
+    "empty_pose_policy": "status=insufficient_pose and class_id/class_name/confidence=null",
+    "warmup_policy": "no prediction before a complete 1.5-second window"
+  },
+  "pose_estimators": {
+    "training_reference": {
+      "api": "mediapipe.solutions.hands",
+      "mediapipe_version": "0.10.21",
+      "static_image_mode": false,
+      "max_num_hands": 2,
+      "model_complexity": 1,
+      "min_detection_confidence": 0.5,
+      "min_tracking_confidence": 0.5,
+      "official_linux_arm64_wheel": false
+    },
+    "raspberry_pi_target": {
+      "api": "mediapipe.tasks.python.vision.HandLandmarker",
+      "mediapipe_version": "1.0.1",
+      "running_mode": "VIDEO",
+      "num_hands": 2,
+      "min_hand_detection_confidence": 0.5,
+      "min_hand_presence_confidence": 0.5,
+      "min_tracking_confidence": 0.5,
+      "model": "model/hand_landmarker.task",
+      "model_url": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      "model_sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
+      "migration_is_explicit": true
+    }
+  },
+  "artifacts": {
+    "recommended": {
+      "path": "model/laia_lightstgcnv2_fp32.onnx",
+      "format": "ONNX FP32",
+      "bytes": 2307416,
+      "sha256": "86503fca2eebec739c05353d36f5ce97b870015bddc50652c38519adb8223ec6"
+    },
+    "pytorch_fallback": {
+      "path": "model/laia_lightstgcnv2_best_state.pt",
+      "format": "LAIA-inference-state-v1",
+      "bytes": 2326659,
+      "sha256": "0536fd726607899b89007b4d19711f6a499e1f9a8cbf13ef02ee4130fa028142",
+      "requires_pytorch": true
+    },
+    "hand_landmarker": {
+      "path": "model/hand_landmarker.task",
+      "bytes": 7819105,
+      "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1"
+    }
+  },
+  "source_checkpoint": {
+    "canonical_selection": "best.pt",
+    "server_path": "/home/cvasquez/workspaces/laia/artifacts/pskus-training-pose-features-v2/runs/lightstgcnv2_indomain_d1p5_t32_s42/best.pt",
+    "bytes": 6908972,
+    "sha256": "dd340d386f9facc2bd06d6c10f7dbe089e2b4b35644bd524e1d48bda3a682bbf",
+    "epoch": 47,
+    "selection_metric": "macro_f1",
+    "validation": {
+      "macro_f1": 0.8126434488705473,
+      "macro_f1_specific_1_6": 0.7865015918296029,
+      "balanced_accuracy": 0.7897908596461622,
+      "accuracy_secondary": 0.9431127221702525
+    },
+    "last_checkpoint_not_selected": {
+      "epoch": 59,
+      "validation_macro_f1": 0.8046948504,
+      "sha256": "753283231fe1d4eb2bffebb1aa97368b6dcd93c9f34f0f7b3589993862667ab0"
+    }
+  },
+  "provenance": {
+    "git_commit": "64b0f6b0295ac47705c708e89ba208edce2f75c7",
+    "git_worktree_dirty_at_packaging": true,
+    "training_config_sha256": "7bdadeec8fbc941dee099fb8328c9cbdf31ea82fd2847dfd48656e1071bb4e1c",
+    "pose_backend": "mediapipe",
+    "pose_schema": "PSKUS-pose-v1",
+    "pose_config_sha256": "944945451a20ef12391580e082d7b25ea9a2b3f3f8f02455875219729f92d151",
+    "pose_checkpoint_sha256": "",
+    "coordinate_mode": "xy_aspect_corrected_common_palm_scale",
+    "slot_policy": "track_order_stable_per_video",
+    "split_regime": "split_in_domain",
+    "seed": 42
+  },
+  "runtime_target": {
+    "operating_system": "Raspberry Pi OS 64-bit",
+    "hardware": "Raspberry Pi 5 CPU",
+    "python": "3.11",
+    "requirements": "requirements/raspberry-pi-arm64.txt",
+    "dependencies": {
+      "mediapipe": "1.0.1",
+      "onnxruntime": "1.28.0",
+      "numpy": "1.26.4",
+      "opencv_contrib_python": "4.11.0.86"
+    },
+    "pytorch_required": false
+  },
+  "validation": {
+    "pytorch_onnx_parity": {
+      "report": "reports/parity.json",
+      "examples": 21,
+      "argmax_agreement": 1.0,
+      "max_logit_abs_difference": 0.0000095367431640625,
+      "max_probability_abs_difference": 0.00000008195638656616211,
+      "status": "PASS"
+    },
+    "legacy_vs_tasks_pose_probe": {
+      "report": "reports/mediapipe_legacy_vs_tasks_probe.json",
+      "videos": 3,
+      "frames": 927,
+      "hand_count_agreement": 0.9471413160733549,
+      "classifier_window_agreement": 0.972972972972973,
+      "interpretation": "agreement proxy only; neither API is ground truth"
+    },
+    "arm64_wheel_resolution": {
+      "report": "reports/arm64_wheel_resolution.json",
+      "python": "3.11",
+      "status": "PASS_ALL_BINARY_WHEELS"
+    },
+    "raspberry_pi_runtime": "PENDING_ON_TARGET"
+  }
+}

@@ -1,0 +1,6 @@
+# Exact x86 reference pose path used to build the PSKUS feature store.
+# Keep isolated from W&B environments because MediaPipe 0.10.21 pins protobuf<5.
+mediapipe==0.10.21
+numpy==1.26.4
+opencv-contrib-python==4.11.0.86
+onnxruntime==1.23.2

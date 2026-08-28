@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+exec /home/labinnovaciont/Desktop/LAIA/scripts/run_laia.sh "$@"

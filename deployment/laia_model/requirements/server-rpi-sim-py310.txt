@@ -1,0 +1,5 @@
+# x86 simulation of the Raspberry Tasks path from the Python 3.10 server.
+# Raspberry Pi OS/Python 3.11 uses onnxruntime 1.28.0 instead.
+mediapipe==1.0.1
+onnxruntime==1.23.2
+numpy==1.26.4

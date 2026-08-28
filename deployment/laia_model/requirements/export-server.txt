@@ -1,0 +1,7 @@
+# Export/parity environment. DL-env already contains these exact packages.
+torch==2.1.2
+onnx==1.16.1
+onnxruntime==1.18.1
+numpy==1.26.4
+h5py==3.16.0
+
