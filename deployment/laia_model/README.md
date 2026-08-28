@@ -70,7 +70,9 @@ This integrity gate avoids turning a wholly missing signal into class 0.
 
 For integration with an existing camera loop, instantiate
 `StreamingHandwashingRecognizer` and call `update_frame(frame_bgr,
-timestamp_s=...)`. Call `reset()` between independent sessions.
+timestamp_s=...)`. Call `reset_temporal_state()` when starting a new movement
+window; it clears MediaPipe, tracking and temporal-buffer state without
+reopening Picamera2. `reset()` remains an alias for a full recognizer reset.
 
 ## Pose API compatibility
 

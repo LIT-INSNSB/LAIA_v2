@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from laia_inference.api import predict_pose_window
+from laia_inference.api import StreamingHandwashingRecognizer, predict_pose_window
 from laia_inference.features_v2 import build_pose_features_v2
 from laia_inference.runtime_onnx import ONNXRuntimeClassifier
 from laia_inference.temporal_buffer import TemporalPoseBuffer
@@ -94,6 +94,27 @@ class DeploymentContractTests(unittest.TestCase):
         tracker.reset()
         restarted = tracker.update([detection(0.3)])
         self.assertEqual(restarted[0].track_id, 0)
+
+    def test_streaming_reset_temporal_state_does_not_recreate_camera(self) -> None:
+        class Resettable:
+            def __init__(self):
+                self.calls = 0
+
+            def reset(self):
+                self.calls += 1
+
+        recognizer = StreamingHandwashingRecognizer.__new__(StreamingHandwashingRecognizer)
+        recognizer.pose_backend = Resettable()
+        recognizer.tracker = Resettable()
+        recognizer.buffer = Resettable()
+        recognizer._frame_index = 42
+
+        recognizer.reset_temporal_state()
+
+        self.assertEqual(recognizer.pose_backend.calls, 1)
+        self.assertEqual(recognizer.tracker.calls, 1)
+        self.assertEqual(recognizer.buffer.calls, 1)
+        self.assertEqual(recognizer._frame_index, 0)
 
 
 if __name__ == "__main__":

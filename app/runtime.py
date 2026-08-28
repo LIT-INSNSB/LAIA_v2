@@ -23,6 +23,7 @@ class RuntimeUpdate:
     prediction: dict | None = None
     error: str | None = None
     camera_backend: str | None = None
+    inference_generation: int = 0
 
 
 class InferenceRuntime:
@@ -32,6 +33,9 @@ class InferenceRuntime:
         self.camera_source = camera_source
         self.updates: queue.Queue[RuntimeUpdate] = queue.Queue(maxsize=2)
         self._stop = threading.Event()
+        self._temporal_reset_requested = threading.Event()
+        self._generation_lock = threading.Lock()
+        self._requested_inference_generation = 0
         self._thread = threading.Thread(target=self._run, name="laia-inference", daemon=True)
 
     def start(self) -> None:
@@ -40,6 +44,21 @@ class InferenceRuntime:
     def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=3.0)
+
+    def reset_temporal_state(self) -> int:
+        """Request a pose/tracking/buffer reset without reopening the camera.
+
+        The reset is applied on the inference worker thread, where the
+        recognizer is owned.  The generation lets the UI discard packets
+        produced by the previous temporal window while that request is being
+        applied.
+        """
+
+        with self._generation_lock:
+            self._requested_inference_generation += 1
+            generation = self._requested_inference_generation
+        self._temporal_reset_requested.set()
+        return generation
 
     def latest(self) -> RuntimeUpdate | None:
         result = None
@@ -62,6 +81,7 @@ class InferenceRuntime:
     def _run(self) -> None:
         camera = None
         recognizer = None
+        inference_generation = 0
         try:
             if str(DEPLOYMENT) not in sys.path:
                 sys.path.insert(0, str(DEPLOYMENT))
@@ -85,12 +105,26 @@ class InferenceRuntime:
             )
             started = time.monotonic()
             while not self._stop.is_set():
+                if self._temporal_reset_requested.is_set():
+                    self._temporal_reset_requested.clear()
+                    recognizer.reset_temporal_state()
+                    with self._generation_lock:
+                        inference_generation = max(
+                            inference_generation,
+                            self._requested_inference_generation,
+                        )
+                    continue
                 frame = camera.read()
                 if frame is None:
                     raise RuntimeError("la cámara dejó de entregar frames")
                 result = recognizer.update_frame(frame, timestamp_s=time.monotonic() - started)
                 self._publish(
-                    RuntimeUpdate(frame_bgr=frame, prediction=result, camera_backend=camera.backend)
+                    RuntimeUpdate(
+                        frame_bgr=frame,
+                        prediction=result,
+                        camera_backend=camera.backend,
+                        inference_generation=inference_generation,
+                    )
                 )
         except Exception as exc:
             LOGGER.exception("Runtime de cámara/inferencia detenido")

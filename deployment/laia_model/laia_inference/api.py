@@ -122,11 +122,18 @@ class StreamingHandwashingRecognizer:
         self.buffer = TemporalPoseBuffer(fps=self.fps, duration_seconds=1.5, stride_seconds=0.375)
         self._frame_index = 0
 
-    def reset(self) -> None:
+    def reset_temporal_state(self) -> None:
+        """Clear pose, tracking and temporal-buffer state without reopening the camera."""
+
         self.pose_backend.reset()
         self.tracker.reset()
         self.buffer.reset()
         self._frame_index = 0
+
+    def reset(self) -> None:
+        """Reset the recognizer between independent sessions."""
+
+        self.reset_temporal_state()
 
     def close(self) -> None:
         self.pose_backend.close()

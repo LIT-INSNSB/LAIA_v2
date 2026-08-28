@@ -45,7 +45,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--camera-source", default="auto", help="auto, picamera2 o v4l2:/dev/videoN")
     result.add_argument("--no-gpio", action="store_true")
     result.add_argument("--no-audio", action="store_true")
-    result.add_argument("--preview-state", choices=("waiting", "washing", "correction", "success"))
+    result.add_argument("--preview-state", choices=("waiting", "washing", "correction", "success", "incomplete"))
     result.add_argument("--preview-step", type=int, default=3)
     result.add_argument("--display-output", help="output Wayland que girará el botón; autodetectado por defecto")
     return result
@@ -161,6 +161,7 @@ class LaiaApplication:
         self._last_state = self.machine.state
         self._last_frame = None
         self._camera_error = ""
+        self._inference_generation = 0
         self._last_render_key = None
         self._closing = False
 
@@ -169,7 +170,7 @@ class LaiaApplication:
         self.root.bind("<Right>", lambda _event: self._simulate_correct())
         self.root.bind("<space>", lambda _event: self._simulate_correct())
         self.root.bind("<x>", lambda _event: self._simulate_incorrect())
-        self.root.bind("<r>", lambda _event: self._handle_events(self.machine.reset()))
+        self.root.bind("<r>", lambda _event: self._reset_session())
 
         if args.preview_state:
             state = {
@@ -177,6 +178,7 @@ class LaiaApplication:
                 "washing": AppState.WASHING,
                 "correction": AppState.CORRECTION,
                 "success": AppState.SUCCESS,
+                "incomplete": AppState.INCOMPLETE,
             }[args.preview_state]
             self.machine.force_preview(state, args.preview_step)
         elif args.simulate:
@@ -259,6 +261,7 @@ class LaiaApplication:
             replacement.stop()
             return
         self.runtime = replacement
+        self._inference_generation = 0
         self.camera_button.configure(state="normal")
         self.refresh_camera_menu()
         LOGGER.info("Cámara seleccionada: %s", self.camera_source)
@@ -417,7 +420,16 @@ class LaiaApplication:
         self._drain_ui_actions()
         if self.runtime is not None:
             update = self.runtime.latest()
+            if update is not None and update.inference_generation < self._inference_generation:
+                # A reset is applied on the inference worker. Packets already
+                # queued from the previous temporal window must not reach the
+                # state machine.
+                update = None
             if update is not None:
+                self._inference_generation = max(
+                    self._inference_generation,
+                    update.inference_generation,
+                )
                 if update.frame_bgr is not None:
                     self._last_frame = update.frame_bgr
                     self.view.set_frame(update.frame_bgr)
@@ -466,11 +478,24 @@ class LaiaApplication:
                 "retry": "retry",
                 "recovered": "recover",
                 "hands_lost": "hands_lost",
+                "attempt_incomplete": "almost",
                 "success": "success",
                 "reset": "welcome",
             }.get(event.name)
             if sound:
                 self.audio.play(audio_path(sound))
+            if event.name in {"step_accepted", "hands_returned", "reset"}:
+                self._reset_temporal_inference()
+
+    def _reset_temporal_inference(self) -> None:
+        """Reset MediaPipe/tracking/buffer while keeping Picamera2 running."""
+
+        if self.runtime is None:
+            return
+        self._inference_generation = self.runtime.reset_temporal_state()
+
+    def _reset_session(self) -> None:
+        self._handle_events(self.machine.reset())
 
     def _simulate_correct(self) -> None:
         if not (self.args.simulate or self.args.preview_state):
