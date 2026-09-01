@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import os
 from pathlib import Path
 
 
@@ -71,6 +72,46 @@ class RuntimeConfig:
     incomplete_hold_seconds: float = 5.0
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+@dataclass(frozen=True)
+class DiagnosticsConfig:
+    """Operational diagnostics settings kept separate from LAIA behavior."""
+
+    diagnostics_enabled: bool = True
+    recording_enabled: bool = True
+    thermal_enabled: bool = True
+    recording_fps: float = 10.0
+    recorder_queue_size: int = 4
+    thermal_interval_seconds: float = 5.0
+    thermal_stale_seconds: float = 15.0
+    disk_check_interval_seconds: float = 60.0
+    disk_min_bytes: int = 2 * 1024**3
+    disk_min_fraction: float = 0.05
+    disk_emergency_bytes: int = 1 * 1024**3
+    ffmpeg_bitrate: str = "2M"
+    ffmpeg_threads: int = 2
+
+    @classmethod
+    def from_environment(cls) -> "DiagnosticsConfig":
+        diagnostics_enabled = _env_bool("LAIA_DIAGNOSTICS_ENABLED", True)
+        return cls(
+            diagnostics_enabled=diagnostics_enabled,
+            recording_enabled=diagnostics_enabled and _env_bool("LAIA_RECORDING_ENABLED", True),
+            thermal_enabled=diagnostics_enabled and _env_bool("LAIA_THERMAL_ENABLED", True),
+        )
+
+    def for_non_camera_mode(self) -> "DiagnosticsConfig":
+        """Keep diagnostic logs available while preventing synthetic artifacts."""
+
+        return replace(self, recording_enabled=False, thermal_enabled=False)
+
+
 def image_path(key: str) -> Path:
     return IMAGES / IMAGE_FILES[key]
 
@@ -108,4 +149,3 @@ def required_paths() -> list[Path]:
         + [AUDIO / filename for filename in AUDIO_FILES.values()]
         + model_files
     )
-
