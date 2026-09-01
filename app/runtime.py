@@ -20,10 +20,14 @@ LOGGER = logging.getLogger(__name__)
 @dataclass
 class RuntimeUpdate:
     frame_bgr: np.ndarray | None = None
+    frame_timestamp_s: float | None = None
+    pose_snapshot: object | None = None
     prediction: dict | None = None
     error: str | None = None
     camera_backend: str | None = None
     inference_generation: int = 0
+    runtime_frame_index: int = 0
+    update_frame_ms: float | None = None
 
 
 class InferenceRuntime:
@@ -82,6 +86,7 @@ class InferenceRuntime:
         camera = None
         recognizer = None
         inference_generation = 0
+        runtime_frame_index = 0
         try:
             if str(DEPLOYMENT) not in sys.path:
                 sys.path.insert(0, str(DEPLOYMENT))
@@ -117,13 +122,21 @@ class InferenceRuntime:
                 frame = camera.read()
                 if frame is None:
                     raise RuntimeError("la cámara dejó de entregar frames")
-                result = recognizer.update_frame(frame, timestamp_s=time.monotonic() - started)
+                frame_timestamp_s = time.monotonic() - started
+                update_started = time.perf_counter()
+                result = recognizer.update_frame(frame, timestamp_s=frame_timestamp_s)
+                update_frame_ms = (time.perf_counter() - update_started) * 1000.0
+                runtime_frame_index += 1
                 self._publish(
                     RuntimeUpdate(
                         frame_bgr=frame,
+                        frame_timestamp_s=frame_timestamp_s,
+                        pose_snapshot=getattr(recognizer, "latest_pose_snapshot", None),
                         prediction=result,
                         camera_backend=camera.backend,
                         inference_generation=inference_generation,
+                        runtime_frame_index=runtime_frame_index,
+                        update_frame_ms=update_frame_ms,
                     )
                 )
         except Exception as exc:
@@ -134,4 +147,3 @@ class InferenceRuntime:
                 recognizer.close()
             if camera is not None:
                 camera.close()
-

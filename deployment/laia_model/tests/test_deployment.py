@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from laia_inference.api import StreamingHandwashingRecognizer, predict_pose_window
+from laia_inference.api import PoseSnapshot, StreamingHandwashingRecognizer, predict_pose_window
 from laia_inference.features_v2 import build_pose_features_v2
 from laia_inference.runtime_onnx import ONNXRuntimeClassifier
 from laia_inference.temporal_buffer import TemporalPoseBuffer
@@ -115,6 +115,52 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertEqual(recognizer.tracker.calls, 1)
         self.assertEqual(recognizer.buffer.calls, 1)
         self.assertEqual(recognizer._frame_index, 0)
+
+    def test_pose_snapshot_is_published_without_a_second_inference(self) -> None:
+        class PoseBackend:
+            def __init__(self):
+                self.calls = 0
+
+            def process(self, frame, timestamp_ms):
+                self.calls += 1
+                return [detection(0.25)]
+
+        class Buffer:
+            ready = False
+            collected_frames = 1
+            required_frames = 30
+
+            def append(self, points, hands, *, timestamp_s, track_ids):
+                self.last = (points, hands, timestamp_s, track_ids)
+
+        recognizer = StreamingHandwashingRecognizer.__new__(StreamingHandwashingRecognizer)
+        recognizer.fps = 20.0
+        recognizer.width = 640
+        recognizer.height = 480
+        recognizer.pose_api = "fake"
+        recognizer.pose_backend = PoseBackend()
+        recognizer.tracker = StatefulHandTracker()
+        recognizer.buffer = Buffer()
+        recognizer.classifier = None
+        recognizer._frame_index = 0
+        recognizer._latest_pose_snapshot = None
+
+        result = recognizer.update_frame(np.zeros((480, 640, 3), dtype=np.uint8), timestamp_s=1.25)
+
+        self.assertEqual(result["status"], "warming_up")
+        self.assertEqual(recognizer.pose_backend.calls, 1)
+        snapshot = recognizer.latest_pose_snapshot
+        self.assertIsInstance(snapshot, PoseSnapshot)
+        self.assertEqual(snapshot.timestamp_s, 1.25)
+        self.assertEqual(snapshot.source_frame_count, 1)
+        self.assertEqual(snapshot.points_normalized.shape, (2, 21, 2))
+        self.assertEqual(snapshot.hand_present.tolist(), [True, False])
+        self.assertEqual(snapshot.track_ids.tolist(), [0, -1])
+        self.assertFalse(snapshot.points_normalized.flags.writeable)
+        self.assertFalse(snapshot.hand_present.flags.writeable)
+        self.assertFalse(snapshot.track_ids.flags.writeable)
+        self.assertIs(recognizer.latest_pose_snapshot, snapshot)
+        self.assertEqual(recognizer.pose_backend.calls, 1)
 
 
 if __name__ == "__main__":

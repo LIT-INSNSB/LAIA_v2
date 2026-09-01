@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,25 @@ CLASS_NAMES = (
     "rotational_rubbing_of_thumb",
     "fingertips_to_palm",
 )
+
+
+def _readonly_copy(value: np.ndarray, *, dtype: np.dtype | None = None) -> np.ndarray:
+    result = np.array(value, dtype=dtype, copy=True)
+    result.setflags(write=False)
+    return result
+
+
+@dataclass(frozen=True)
+class PoseSnapshot:
+    """Read-only pose/tracking state produced as part of normal inference."""
+
+    timestamp_s: float
+    source_frame_count: int
+    points_normalized: np.ndarray
+    hand_present: np.ndarray
+    track_ids: np.ndarray
+    tracks_created: int
+    track_fragmentation: int
 
 
 def _prediction(
@@ -121,6 +141,13 @@ class StreamingHandwashingRecognizer:
         self.tracker = StatefulHandTracker(max_cost=0.82, max_gap=1)
         self.buffer = TemporalPoseBuffer(fps=self.fps, duration_seconds=1.5, stride_seconds=0.375)
         self._frame_index = 0
+        self._latest_pose_snapshot: PoseSnapshot | None = None
+
+    @property
+    def latest_pose_snapshot(self) -> PoseSnapshot | None:
+        """Return the latest snapshot without running another pose/model pass."""
+
+        return self._latest_pose_snapshot
 
     def reset_temporal_state(self) -> None:
         """Clear pose, tracking and temporal-buffer state without reopening the camera."""
@@ -129,6 +156,7 @@ class StreamingHandwashingRecognizer:
         self.tracker.reset()
         self.buffer.reset()
         self._frame_index = 0
+        self._latest_pose_snapshot = None
 
     def reset(self) -> None:
         """Reset the recognizer between independent sessions."""
@@ -161,6 +189,15 @@ class StreamingHandwashingRecognizer:
             hand_present,
             timestamp_s=timestamp,
             track_ids=track_ids,
+        )
+        self._latest_pose_snapshot = PoseSnapshot(
+            timestamp_s=timestamp,
+            source_frame_count=self._frame_index + 1,
+            points_normalized=_readonly_copy(points, dtype=np.float32),
+            hand_present=_readonly_copy(hand_present, dtype=bool),
+            track_ids=_readonly_copy(track_ids, dtype=np.int32),
+            tracks_created=int(self.tracker.tracks_created),
+            track_fragmentation=int(self.tracker.track_fragmentation),
         )
         self._frame_index += 1
 
