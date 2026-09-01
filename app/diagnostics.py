@@ -230,6 +230,11 @@ class DiagnosticsCoordinator:
                 disk_emergency_bytes=self.config.disk_emergency_bytes,
             )
             recorder.start(session_id, started_monotonic_s=started)
+            if recorder.status == "skipped_low_disk":
+                self.logger.warning(
+                    "Diagnostics recording skipped: session_id=%s recording_status=skipped_low_disk",
+                    session_id,
+                )
         return _Session(
             session_id=session_id,
             started_monotonic_s=started,
