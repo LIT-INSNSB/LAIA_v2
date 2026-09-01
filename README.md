@@ -19,6 +19,30 @@ Modo simulación sin cámara, display físico, GPIO ni audio:
 En simulación: `Espacio` o `→` confirma el paso esperado, `x` simula una clase
 incorrecta, `r` reinicia y `Esc` sale. Estos controles no aparecen en pantalla.
 
+Para preparar la comprobación de audio solicitada:
+
+```bash
+./scripts/run_laia.sh --simulate --windowed --no-gpio
+```
+
+Pulsa `Espacio` o `→` una vez para iniciar, `x` para entrar en `CORRECTION` y
+varias veces más para verificar que los `retry` no reinician “Oops”. Después
+recupera el paso con `Espacio` o `→` y pulsa `x` en el siguiente paso para
+confirmar que una nueva entrada en `CORRECTION` puede reproducirlo otra vez.
+
+## Diagnóstico de inferencia
+
+LAIA registra una línea `Prediction:` por cada evaluación efectiva del modelo
+(`prediction` o `insufficient_pose`), no por cada frame. Incluye clase superior,
+nombre, confianza, cobertura de pose, rachas, estado, pasos aceptados, eventos y
+diagnósticos ligeros de tracking. Los valores ausentes se escriben como `none`.
+
+Para extraer el intervalo de una prueba sin tratar el log como binario:
+
+```bash
+grep -a '^2026-09-01' logs/laia-app.log | grep -E 'Prediction:|Evento:|Estado:|Inicio LAIA'
+```
+
 ## Contrato visual
 
 - `WAITING_FOR_HANDS`: cámara live con `silueta.png`.
@@ -38,8 +62,9 @@ identificados durante todo el lavado. LAIA solo entra en `SUCCESS` cuando se
 cumplen ambas condiciones:
 
 - han transcurrido al menos 20 segundos continuos con las manos visibles;
-- se han identificado al menos 4 de los 6 pasos, o el modelo ha comunicado una
-  cobertura de pasos de al menos 80 %.
+- el estado ha confirmado los seis pasos esperados, del 1 al 6. La cobertura
+  comunicada por el modelo se conserva como diagnóstico y no sustituye esas
+  confirmaciones.
 
 Si la primera predicción activa `CORRECTION`, una evidencia posterior válida
 puede recuperar la sesión sin usar la clase equivocada para escoger la imagen.
