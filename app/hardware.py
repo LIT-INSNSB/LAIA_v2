@@ -106,37 +106,79 @@ class AudioPlayer:
     def __init__(self, enabled: bool = True) -> None:
         self.enabled = enabled
         self._process: subprocess.Popen | None = None
+        self._active_path: Path | None = None
         self._lock = threading.Lock()
         self.player = shutil.which("mpg123") or shutil.which("ffplay")
         self.detail = self.player or "reproductor no encontrado"
 
+    @property
+    def active_path(self) -> Path | None:
+        with self._lock:
+            self._clear_finished_locked()
+            return self._active_path
+
+    def _clear_finished_locked(self) -> None:
+        if self._process is None:
+            self._active_path = None
+            return
+        if self._process.poll() is not None:
+            self._process = None
+            self._active_path = None
+
     def play(self, path: Path) -> None:
         if not self.enabled or self.player is None or not path.is_file():
             return
+        path = Path(path)
         with self._lock:
-            self.stop()
+            self._clear_finished_locked()
+            if self._process is not None and self._active_path == path:
+                return
+            self._stop_locked()
             command = (
                 [self.player, "-q", str(path)]
                 if Path(self.player).name == "mpg123"
                 else [self.player, "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)]
             )
             try:
-                self._process = subprocess.Popen(
+                process = subprocess.Popen(
                     command,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
             except OSError as exc:
+                self._process = None
+                self._active_path = None
                 LOGGER.warning("No se pudo reproducir %s: %s", path, exc)
+            else:
+                self._process = process
+                self._active_path = path
 
     def stop(self) -> None:
-        if self._process is not None and self._process.poll() is None:
-            self._process.terminate()
+        with self._lock:
+            self._stop_locked()
+
+    def stop_if_active(self, path: Path) -> bool:
+        path = Path(path)
+        with self._lock:
+            self._clear_finished_locked()
+            if self._active_path != path:
+                return False
+            self._stop_locked()
+            return True
+
+    def _stop_locked(self) -> None:
+        process = self._process
         self._process = None
+        self._active_path = None
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+            except OSError as exc:
+                LOGGER.debug("El reproductor de audio ya no estaba disponible: %s", exc)
 
     def close(self) -> None:
         with self._lock:
-            self.stop()
+            self._stop_locked()
 
 
 class CameraSource:

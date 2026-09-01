@@ -51,6 +51,45 @@ class StateMachineTests(unittest.TestCase):
         self.assertIn(6, self.machine.observed_classes)
         self.assertIn("correction", [event.name for event in events])
 
+    def test_correction_and_retry_are_edge_triggered(self) -> None:
+        self.start()
+
+        first_pair = [
+            self.machine.observe(class_id=6, pose_present=True, now=1.0),
+            self.machine.observe(class_id=6, pose_present=True, now=1.4),
+        ]
+        self.assertEqual(
+            [event.name for events in first_pair for event in events],
+            ["correction"],
+        )
+        self.assertEqual(self.machine.state, AppState.CORRECTION)
+
+        retry_pair = [
+            self.machine.observe(class_id=6, pose_present=True, now=2.0),
+            self.machine.observe(class_id=6, pose_present=True, now=2.4),
+        ]
+        self.assertEqual(
+            [event.name for events in retry_pair for event in events],
+            ["retry"],
+        )
+        self.assertEqual(self.machine.state, AppState.CORRECTION)
+
+        self.machine.observe(class_id=1, pose_present=True, now=3.0)
+        recovery_events = self.machine.observe(class_id=1, pose_present=True, now=3.4)
+        self.assertIn("step_accepted", [event.name for event in recovery_events])
+        self.assertIn("recovered", [event.name for event in recovery_events])
+        self.assertEqual(self.machine.state, AppState.WASHING)
+
+        next_pair = [
+            self.machine.observe(class_id=6, pose_present=True, now=4.0),
+            self.machine.observe(class_id=6, pose_present=True, now=4.4),
+        ]
+        self.assertEqual(
+            [event.name for events in next_pair for event in events],
+            ["correction"],
+        )
+        self.assertEqual(self.machine.state, AppState.CORRECTION)
+
     def test_correct_step_four_is_accepted_after_correction(self) -> None:
         self.start()
         for step in range(1, 4):

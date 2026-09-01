@@ -24,6 +24,21 @@ from .ui import LaiaView
 LOGGER = logging.getLogger("laia")
 
 
+_AUDIO_EVENT_KEYS = {
+    "session_started": "start",
+    "correction": "retry",
+    "recovered": "recover",
+    "hands_lost": "hands_lost",
+    "attempt_incomplete": "almost",
+    "success": "success",
+    "reset": "welcome",
+}
+
+
+def audio_key_for_event(event_name: str) -> str | None:
+    return _AUDIO_EVENT_KEYS.get(event_name)
+
+
 def configure_logging() -> Path:
     LOGS.mkdir(parents=True, exist_ok=True)
     path = LOGS / "laia-app.log"
@@ -472,16 +487,7 @@ class LaiaApplication:
     def _handle_events(self, events: list[AppEvent]) -> None:
         for event in events:
             LOGGER.info("Evento: %s value=%s", event.name, event.value)
-            sound = {
-                "session_started": "start",
-                "correction": "almost",
-                "retry": "retry",
-                "recovered": "recover",
-                "hands_lost": "hands_lost",
-                "attempt_incomplete": "almost",
-                "success": "success",
-                "reset": "welcome",
-            }.get(event.name)
+            sound = audio_key_for_event(event.name)
             if sound:
                 self.audio.play(audio_path(sound))
             if event.name in {"step_accepted", "hands_returned", "reset"}:

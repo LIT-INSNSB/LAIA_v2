@@ -5,8 +5,9 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+from app.config import audio_path
 
-from app.hardware import CameraSource, LedController
+from app.hardware import AudioPlayer, CameraSource, LedController
 from app.state_machine import AppState
 
 
@@ -55,6 +56,95 @@ class LedSignalTests(unittest.TestCase):
             self.assertGreaterEqual(success.events.count("off"), 1)
             self.assertGreaterEqual(error.events.count("off"), 1)
             leds.close()
+
+
+class FakeAudioProcess:
+    def __init__(self) -> None:
+        self.returncode = None
+        self.terminate_calls = 0
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        self.returncode = -15
+
+
+class AudioPlayerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.retry_path = audio_path("retry")
+        self.recover_path = audio_path("recover")
+        self.processes = []
+
+        def spawn(*_args, **_kwargs):
+            process = FakeAudioProcess()
+            self.processes.append(process)
+            return process
+
+        self.which = patch("app.hardware.shutil.which", return_value="/usr/bin/mpg123")
+        self.popen = patch("app.hardware.subprocess.Popen", side_effect=spawn)
+        self.which.start()
+        self.popen.start()
+
+    def tearDown(self) -> None:
+        self.popen.stop()
+        self.which.stop()
+
+    def test_first_play_starts_a_process(self):
+        player = AudioPlayer()
+
+        player.play(self.retry_path)
+
+        self.assertEqual(len(self.processes), 1)
+        self.assertEqual(player.active_path, self.retry_path)
+
+    def test_same_active_path_does_not_restart_or_stop(self):
+        player = AudioPlayer()
+        player.play(self.retry_path)
+
+        player.play(self.retry_path)
+
+        self.assertEqual(len(self.processes), 1)
+        self.assertEqual(self.processes[0].terminate_calls, 0)
+
+    def test_different_path_replaces_active_process(self):
+        player = AudioPlayer()
+        player.play(self.retry_path)
+
+        player.play(self.recover_path)
+
+        self.assertEqual(len(self.processes), 2)
+        self.assertEqual(self.processes[0].terminate_calls, 1)
+        self.assertEqual(player.active_path, self.recover_path)
+
+    def test_same_path_after_process_exit_starts_again(self):
+        player = AudioPlayer()
+        player.play(self.retry_path)
+        self.processes[0].returncode = 0
+
+        player.play(self.retry_path)
+
+        self.assertEqual(len(self.processes), 2)
+        self.assertEqual(self.processes[0].terminate_calls, 0)
+        self.assertEqual(player.active_path, self.retry_path)
+
+    def test_stop_and_close_clear_active_state(self):
+        player = AudioPlayer()
+        player.play(self.retry_path)
+        player.stop()
+        self.assertIsNone(player.active_path)
+
+        player.play(self.retry_path)
+        player.close()
+        self.assertIsNone(player.active_path)
+
+    def test_failed_subprocess_creation_does_not_leave_active_path(self):
+        with patch("app.hardware.subprocess.Popen", side_effect=OSError("missing player")):
+            player = AudioPlayer()
+            player.play(self.retry_path)
+
+        self.assertIsNone(player.active_path)
 
 
 class FakePicamera2:
