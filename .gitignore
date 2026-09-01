@@ -29,6 +29,9 @@ logs/*.rej
 logs/*.patch-reject
 logs/*.pre-*
 logs/imported-desktop-log-directory/
+logs/recordings/
+logs/telemetry/
+*.mp4.partial
 
 # Test captures
 scripts/test.jpg

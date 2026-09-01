@@ -13,8 +13,9 @@ import threading
 import time
 import tkinter as tk
 
-from .config import LOGS, RuntimeConfig, audio_path, required_paths
+from .config import DiagnosticsConfig, LOGS, RuntimeConfig, audio_path, required_paths
 from .cameras import CameraOption, discover_camera_options
+from .diagnostics import DiagnosticsCoordinator
 from .display import DisplayOutput, DisplayRotationController
 from .hardware import AudioPlayer, LedController
 from .runtime import InferenceRuntime
@@ -112,11 +113,13 @@ def format_prediction_diagnostics(
     incorrect_streak: object,
     accepted_steps: Iterable[object] | None,
     events: Iterable[AppEvent] | None,
+    session_id: object = "none",
 ) -> str:
     status = prediction.get("status")
     is_prediction = status == "prediction"
     return (
         "Prediction: "
+        f"session_id={_log_token(session_id)} "
         f"status={_log_token(status)} "
         f"expected_step={_log_int(expected_step)} "
         f"predicted_class={_log_int(prediction.get('class_id') if is_prediction else None)} "
@@ -143,6 +146,7 @@ def format_event_diagnostics(
     correct_streak: object,
     incorrect_streak: object,
     accepted_steps: Iterable[object] | None,
+    session_id: object = "none",
 ) -> str:
     return (
         f"Evento: {_log_token(event.name)} "
@@ -151,7 +155,8 @@ def format_event_diagnostics(
         f"expected_step={_log_int(expected_step)} "
         f"correct_streak={_log_int(correct_streak)} "
         f"incorrect_streak={_log_int(incorrect_streak)} "
-        f"accepted_steps={_log_steps(accepted_steps)}"
+        f"accepted_steps={_log_steps(accepted_steps)} "
+        f"session_id={_log_token(session_id)}"
     )
 
 
@@ -191,6 +196,14 @@ class LaiaApplication:
         self.args = args
         self.config = RuntimeConfig()
         self.machine = SessionStateMachine(self.config)
+        diagnostics_config = DiagnosticsConfig.from_environment()
+        if args.simulate or args.preview_state:
+            diagnostics_config = diagnostics_config.for_non_camera_mode()
+        try:
+            self.diagnostics: DiagnosticsCoordinator | None = DiagnosticsCoordinator(diagnostics_config)
+        except Exception:
+            LOGGER.exception("La capa diagnóstica no pudo iniciar; LAIA continúa sin ella")
+            self.diagnostics = None
         self.camera_source = (
             f"v4l2:/dev/video{args.camera_index}" if args.camera_index is not None else args.camera_source
         )
@@ -355,6 +368,9 @@ class LaiaApplication:
         if source == self.camera_source and not force:
             return
         self.camera_source = source
+        diagnostics = getattr(self, "diagnostics", None)
+        if diagnostics is not None:
+            diagnostics.finish("camera_restart")
         self.camera_choice.set(source)
         self.camera_button.configure(state="disabled")
         self.camera_button_text.set("Cámara…")
@@ -403,6 +419,9 @@ class LaiaApplication:
         self.view.set_camera_detail(message)
         self._camera_error = message
         LOGGER.error("No se pudo cambiar de cámara: %s", message)
+        diagnostics = getattr(self, "diagnostics", None)
+        if diagnostics is not None:
+            diagnostics.finish("camera_error")
     def _lift_controls(self) -> None:
         self.camera_button.lift()
         self.rotate_button.lift()
@@ -553,6 +572,8 @@ class LaiaApplication:
             recognized_steps=recognized_steps,
             step_coverage=step_coverage,
         )
+        diagnostics = getattr(self, "diagnostics", None)
+        session_id = diagnostics.prepare_events(events) if diagnostics is not None else "none"
         LOGGER.info(
             format_prediction_diagnostics(
                 prediction,
@@ -562,9 +583,9 @@ class LaiaApplication:
                 incorrect_streak=self.machine.incorrect_streak,
                 accepted_steps=self.machine.accepted_steps,
                 events=events,
+                session_id=session_id,
             )
         )
-        self._handle_events(events)
         return events
 
     def _drain_ui_actions(self) -> None:
@@ -605,8 +626,29 @@ class LaiaApplication:
                     self._camera_error = update.error
                     self.view.set_camera_detail(update.error)
                     LOGGER.error("Cámara/inferencia: %s", update.error)
+                    diagnostics = getattr(self, "diagnostics", None)
+                    if diagnostics is not None:
+                        diagnostics.finish("runtime_error")
                 if update.prediction is not None:
-                    self._process_prediction(update.prediction)
+                    events = self._process_prediction(update.prediction) or []
+                    diagnostics = getattr(self, "diagnostics", None)
+                    if diagnostics is not None:
+                        diagnostics.offer_runtime_update(
+                            update,
+                            prediction=update.prediction,
+                            events=events,
+                            machine=self.machine,
+                        )
+                    self._handle_events(events)
+                elif update.frame_bgr is not None:
+                    diagnostics = getattr(self, "diagnostics", None)
+                    if diagnostics is not None:
+                        diagnostics.offer_runtime_update(
+                            update,
+                            prediction=None,
+                            events=(),
+                            machine=self.machine,
+                        )
 
         if self.args.preview_state is None:
             self._handle_events(self.machine.tick())
@@ -627,6 +669,8 @@ class LaiaApplication:
         self.root.after(50, self._poll)
 
     def _handle_events(self, events: list[AppEvent]) -> None:
+        diagnostics = getattr(self, "diagnostics", None)
+        session_id = diagnostics.prepare_events(events) if diagnostics is not None else "none"
         for event in events:
             LOGGER.info(
                 format_event_diagnostics(
@@ -636,6 +680,7 @@ class LaiaApplication:
                     correct_streak=self.machine.correct_streak,
                     incorrect_streak=self.machine.incorrect_streak,
                     accepted_steps=self.machine.accepted_steps,
+                    session_id=session_id,
                 )
             )
             sound = audio_key_for_event(event.name)
@@ -645,6 +690,8 @@ class LaiaApplication:
                 self.audio.stop_if_active(audio_path("hands_lost"))
             if event.name in {"step_accepted", "hands_returned", "reset"}:
                 self._reset_temporal_inference()
+        if diagnostics is not None:
+            diagnostics.finish_events(events)
 
     def _reset_temporal_inference(self) -> None:
         """Reset MediaPipe/tracking/buffer while keeping Picamera2 running."""
@@ -686,6 +733,9 @@ class LaiaApplication:
         self._closing = True
         if self.runtime is not None:
             self.runtime.stop()
+        diagnostics = getattr(self, "diagnostics", None)
+        if diagnostics is not None:
+            diagnostics.close("application_close")
         self.audio.close()
         self.leds.close()
         self.root.destroy()
