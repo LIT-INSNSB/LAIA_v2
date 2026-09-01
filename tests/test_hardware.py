@@ -146,6 +146,15 @@ class AudioPlayerTests(unittest.TestCase):
 
         self.assertIsNone(player.active_path)
 
+    def test_stop_if_active_only_stops_matching_path(self):
+        player = AudioPlayer()
+        player.play(self.retry_path)
+
+        self.assertFalse(player.stop_if_active(self.recover_path))
+        self.assertEqual(self.processes[0].terminate_calls, 0)
+        self.assertTrue(player.stop_if_active(self.retry_path))
+        self.assertEqual(self.processes[0].terminate_calls, 1)
+
 
 class FakePicamera2:
     instances = []

@@ -60,6 +60,33 @@ class AudioRoutingTests(unittest.TestCase):
             [audio_path("retry"), audio_path("recover"), audio_path("retry")],
         )
 
+    def test_hands_lost_grace_start_plays_warning(self) -> None:
+        self.assertEqual(audio_key_for_event("hands_lost_grace_started"), "hands_lost")
+
+        self.application._handle_events([AppEvent("hands_lost_grace_started", 4)])
+
+        self.assertEqual(self.audio.played, [audio_path("hands_lost")])
+
+    def test_hands_returned_stops_only_hand_loss_clip(self) -> None:
+        self.application._handle_events([AppEvent("hands_returned", 4)])
+
+        self.assertEqual(self.audio.stop_if_active_calls, [audio_path("hands_lost")])
+        self.assertEqual(self.audio.played, [])
+
+    def test_terminal_hands_lost_does_not_restart_warning(self) -> None:
+        self.assertIsNone(audio_key_for_event("hands_lost"))
+
+        self.application._handle_events([AppEvent("hands_lost")])
+
+        self.assertEqual(self.audio.played, [])
+
+    def test_incomplete_batch_has_one_final_feedback_playback(self) -> None:
+        self.application._handle_events(
+            [AppEvent("hands_lost"), AppEvent("attempt_incomplete", 4)]
+        )
+
+        self.assertEqual(self.audio.played, [audio_path("almost")])
+
 
 if __name__ == "__main__":
     unittest.main()

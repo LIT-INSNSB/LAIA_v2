@@ -28,7 +28,7 @@ _AUDIO_EVENT_KEYS = {
     "session_started": "start",
     "correction": "retry",
     "recovered": "recover",
-    "hands_lost": "hands_lost",
+    "hands_lost_grace_started": "hands_lost",
     "attempt_incomplete": "almost",
     "success": "success",
     "reset": "welcome",
@@ -490,6 +490,8 @@ class LaiaApplication:
             sound = audio_key_for_event(event.name)
             if sound:
                 self.audio.play(audio_path(sound))
+            if event.name == "hands_returned":
+                self.audio.stop_if_active(audio_path("hands_lost"))
             if event.name in {"step_accepted", "hands_returned", "reset"}:
                 self._reset_temporal_inference()
 
