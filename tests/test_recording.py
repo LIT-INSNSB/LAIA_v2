@@ -249,6 +249,36 @@ class RecordingTests(unittest.TestCase):
             self.assertEqual(recorder.status, "skipped_low_disk")
             self.assertFalse(list(Path(directory).glob("*.mp4*")))
 
+    def test_emergency_low_disk_stops_both_outputs_without_deleting_files(self) -> None:
+        calls = 0
+
+        def usage(_path):
+            nonlocal calls
+            calls += 1
+            free = 10_000 if calls < 3 else 50
+            return SimpleNamespace(total=10_000, used=10_000 - free, free=free)
+
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = PairedRecorder(
+                Path(directory),
+                queue_size=2,
+                disk_usage=usage,
+                disk_min_bytes=0,
+                disk_min_fraction=0.0,
+                disk_emergency_bytes=100,
+                disk_check_interval_seconds=0.1,
+                encoder_factory=FakeEncoder,
+            )
+            self.assertTrue(recorder.start("20260901_101503"))
+            recorder.offer_frame(packet(np.zeros((16, 16, 3), dtype=np.uint8), 0.0))
+            deadline = time.monotonic() + 1.0
+            while recorder.status != "emergency_low_disk" and time.monotonic() < deadline:
+                time.sleep(0.02)
+            recorder.join(1.0)
+
+            self.assertEqual(recorder.status, "emergency_low_disk")
+            self.assertEqual(recorder.stop_reason, "emergency_low_disk")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -504,6 +504,7 @@ class PairedRecorder:
         self._thread: threading.Thread | None = None
         self._raw_encoder: FFmpegEncoder | None = None
         self._annotated_encoder: FFmpegEncoder | None = None
+        self._encoder_init_failed: set[str] = set()
 
     def _free_bytes(self) -> int | None:
         try:
@@ -553,6 +554,9 @@ class PairedRecorder:
             self.counters = RecordingCounters()
             self.stop_reason = None
             self.failure_warnings = []
+            self._raw_encoder = None
+            self._annotated_encoder = None
+            self._encoder_init_failed = set()
             self._stop_requested = False
             self._drain_on_stop = True
             self._accepting = True
@@ -619,9 +623,17 @@ class PairedRecorder:
                 self._drain_on_stop = bool(drain)
                 self._accepting = False
                 self.stop_reason = reason
+                if reason == "emergency_low_disk":
+                    self.status = "emergency_low_disk"
                 self.control_queue.put(("stop", reason))
 
     def stop(self, reason: str = "terminal", *, wait: bool = False, timeout: float = 10.0) -> None:
+        with self._lock:
+            active = self._accepting or (
+                self._thread is not None and self._thread.is_alive()
+            )
+        if not active:
+            return
         self._request_stop(reason, drain=True)
         if wait:
             self.join(timeout)
@@ -639,43 +651,60 @@ class PairedRecorder:
         if self.raw_path is None or self.annotated_path is None:
             return
         height, width = packet.frame_bgr.shape[:2]
-        if self._raw_encoder is None:
-            self._raw_encoder = self.encoder_factory(
-                self.raw_path,
-                width=width,
-                height=height,
-                fps=self.recording_fps,
-                bitrate=self.bitrate,
-                threads=self.ffmpeg_threads,
-                ffmpeg_path=self.ffmpeg_path,
-            )
-            if not self._raw_encoder.start():
-                self.failure_warnings.append(f"raw:{self._raw_encoder.failure_reason or 'start_failed'}")
-        if self._annotated_encoder is None:
-            self._annotated_encoder = self.encoder_factory(
-                self.annotated_path,
-                width=width,
-                height=height,
-                fps=self.recording_fps,
-                bitrate=self.bitrate,
-                threads=self.ffmpeg_threads,
-                ffmpeg_path=self.ffmpeg_path,
-            )
-            if not self._annotated_encoder.start():
-                self.failure_warnings.append(
-                    f"annotated:{self._annotated_encoder.failure_reason or 'start_failed'}"
+        for label, path in (("raw", self.raw_path), ("annotated", self.annotated_path)):
+            if label == "raw":
+                encoder = self._raw_encoder
+            else:
+                encoder = self._annotated_encoder
+            if encoder is not None or label in self._encoder_init_failed:
+                continue
+            try:
+                encoder = self.encoder_factory(
+                    path,
+                    width=width,
+                    height=height,
+                    fps=self.recording_fps,
+                    bitrate=self.bitrate,
+                    threads=self.ffmpeg_threads,
+                    ffmpeg_path=self.ffmpeg_path,
                 )
+                started = bool(encoder.start())
+            except Exception as exc:
+                self._encoder_init_failed.add(label)
+                self.failure_warnings.append(f"{label}:{exc}")
+                continue
+            if label == "raw":
+                self._raw_encoder = encoder
+            else:
+                self._annotated_encoder = encoder
+            if not started:
+                self.failure_warnings.append(f"{label}:{getattr(encoder, 'failure_reason', None) or 'start_failed'}")
+
+    def _safe_write(self, label: str, encoder: FFmpegEncoder, frame: np.ndarray) -> bool:
+        try:
+            return bool(encoder.write(frame))
+        except Exception as exc:
+            encoder.failed = True
+            encoder.failure_reason = str(exc)
+            warning = f"{label}:{exc}"
+            if warning not in self.failure_warnings:
+                self.failure_warnings.append(warning)
+            return False
 
     def _write_packet(self, packet: FramePacket) -> None:
         self._ensure_encoders(packet)
-        if self._raw_encoder is not None and self._raw_encoder.write(packet.frame_bgr):
+        if self._raw_encoder is not None and self._safe_write("raw", self._raw_encoder, packet.frame_bgr):
             self.counters.raw_frames_written += 1
         if self._annotated_encoder is not None:
-            annotated = annotate_frame(
-                packet,
-                thermal_stale_seconds=self.thermal_stale_seconds,
-            )
-            if self._annotated_encoder.write(annotated):
+            try:
+                annotated = annotate_frame(
+                    packet,
+                    thermal_stale_seconds=self.thermal_stale_seconds,
+                )
+            except Exception as exc:
+                self.failure_warnings.append(f"annotated_overlay:{exc}")
+                annotated = None
+            if annotated is not None and self._safe_write("annotated", self._annotated_encoder, annotated):
                 self.counters.annotated_frames_written += 1
 
     def _close_encoders(self) -> None:
