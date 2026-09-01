@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable, Mapping
 import logging
 import math
 import re
@@ -37,6 +38,121 @@ _AUDIO_EVENT_KEYS = {
 
 def audio_key_for_event(event_name: str) -> str | None:
     return _AUDIO_EVENT_KEYS.get(event_name)
+
+
+def _log_token(value: object) -> str:
+    if value is None:
+        return "none"
+    text = str(value).strip()
+    if not text:
+        return "none"
+    return re.sub(r"[^A-Za-z0-9_.:-]+", "_", text)
+
+
+def _log_int(value: object) -> str:
+    if isinstance(value, bool):
+        return "none"
+    try:
+        result = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return "none"
+    return str(result)
+
+
+def _log_float(value: object) -> str:
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return "none"
+    return f"{result:.3f}" if math.isfinite(result) else "none"
+
+
+def _log_steps(values: Iterable[object] | None) -> str:
+    if values is None:
+        return "none"
+    try:
+        iterator = iter(values)
+    except TypeError:
+        iterator = iter((values,))
+    steps: set[int] = set()
+    for value in iterator:
+        if isinstance(value, bool):
+            continue
+        try:
+            step = int(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if step in range(1, 7):
+            steps.add(step)
+    return ",".join(str(step) for step in sorted(steps)) or "none"
+
+
+def _log_event_names(events: Iterable[AppEvent] | None) -> str:
+    if events is None:
+        return "none"
+    try:
+        iterator = iter(events)
+    except TypeError:
+        return "none"
+    names = [_log_token(getattr(event, "name", None)) for event in iterator]
+    names = [name for name in names if name != "none"]
+    return ",".join(names) or "none"
+
+
+def _state_token(state: object) -> str:
+    return _log_token(getattr(state, "value", state))
+
+
+def format_prediction_diagnostics(
+    prediction: Mapping[str, object],
+    *,
+    expected_step: object,
+    runtime_state: object,
+    correct_streak: object,
+    incorrect_streak: object,
+    accepted_steps: Iterable[object] | None,
+    events: Iterable[AppEvent] | None,
+) -> str:
+    status = prediction.get("status")
+    is_prediction = status == "prediction"
+    return (
+        "Prediction: "
+        f"status={_log_token(status)} "
+        f"expected_step={_log_int(expected_step)} "
+        f"predicted_class={_log_int(prediction.get('class_id') if is_prediction else None)} "
+        f"class_name={_log_token(prediction.get('class_name') if is_prediction else None)} "
+        f"confidence={_log_float(prediction.get('confidence_uncalibrated') if is_prediction else None)} "
+        f"pose_coverage={_log_float(prediction.get('pose_coverage_ge1'))} "
+        f"pose_coverage_2={_log_float(prediction.get('pose_coverage_2'))} "
+        f"correct_streak={_log_int(correct_streak)} "
+        f"incorrect_streak={_log_int(incorrect_streak)} "
+        f"runtime_state={_state_token(runtime_state)} "
+        f"accepted_steps={_log_steps(accepted_steps)} "
+        f"events={_log_event_names(events)} "
+        f"track_fragmentation={_log_int(prediction.get('track_fragmentation'))} "
+        f"tracks_created={_log_int(prediction.get('tracks_created'))} "
+        f"source_frame_count={_log_int(prediction.get('source_frame_count'))}"
+    )
+
+
+def format_event_diagnostics(
+    event: AppEvent,
+    *,
+    runtime_state: object,
+    expected_step: object,
+    correct_streak: object,
+    incorrect_streak: object,
+    accepted_steps: Iterable[object] | None,
+) -> str:
+    return (
+        f"Evento: {_log_token(event.name)} "
+        f"value={_log_int(event.value)} "
+        f"runtime_state={_state_token(runtime_state)} "
+        f"expected_step={_log_int(expected_step)} "
+        f"correct_streak={_log_int(correct_streak)} "
+        f"incorrect_streak={_log_int(incorrect_streak)} "
+        f"accepted_steps={_log_steps(accepted_steps)}"
+    )
 
 
 def configure_logging() -> Path:
@@ -362,8 +478,13 @@ class LaiaApplication:
             for value in values:
                 if isinstance(value, bool):
                     continue
+                if isinstance(value, float) and not math.isfinite(value):
+                    continue
                 if isinstance(value, (int, float)):
-                    step = int(value)
+                    try:
+                        step = int(value)
+                    except (TypeError, ValueError, OverflowError):
+                        continue
                 else:
                     match = re.fullmatch(r"(?:step|paso)?[ _-]*([1-6])", str(value), re.IGNORECASE)
                     if match is None:
@@ -386,7 +507,7 @@ class LaiaApplication:
                 continue
             try:
                 coverage = float(raw)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if not math.isfinite(coverage):
                 continue
@@ -403,9 +524,13 @@ class LaiaApplication:
         if status == "prediction":
             try:
                 class_id = int(prediction.get("class_id"))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 class_id = None
-            present = float(prediction.get("pose_coverage_ge1", 0.0)) > 0.15
+            try:
+                pose_coverage = float(prediction.get("pose_coverage_ge1", 0.0))
+            except (TypeError, ValueError, OverflowError):
+                pose_coverage = 0.0
+            present = math.isfinite(pose_coverage) and pose_coverage > 0.15
             return (
                 class_id,
                 present,
@@ -415,6 +540,32 @@ class LaiaApplication:
         if status == "insufficient_pose":
             return None, False, set(), None
         return None
+
+    def _process_prediction(self, prediction: dict) -> list[AppEvent] | None:
+        observation = self._prediction_to_observation(prediction)
+        if observation is None:
+            return None
+        class_id, present, recognized_steps, step_coverage = observation
+        expected_step = self.machine.expected_step
+        events = self.machine.observe(
+            class_id=class_id,
+            pose_present=present,
+            recognized_steps=recognized_steps,
+            step_coverage=step_coverage,
+        )
+        LOGGER.info(
+            format_prediction_diagnostics(
+                prediction,
+                expected_step=expected_step,
+                runtime_state=self.machine.state,
+                correct_streak=self.machine.correct_streak,
+                incorrect_streak=self.machine.incorrect_streak,
+                accepted_steps=self.machine.accepted_steps,
+                events=events,
+            )
+        )
+        self._handle_events(events)
+        return events
 
     def _drain_ui_actions(self) -> None:
         while True:
@@ -454,17 +605,8 @@ class LaiaApplication:
                     self._camera_error = update.error
                     self.view.set_camera_detail(update.error)
                     LOGGER.error("Cámara/inferencia: %s", update.error)
-                if update.prediction:
-                    observation = self._prediction_to_observation(update.prediction)
-                    if observation is not None:
-                        class_id, present, recognized_steps, step_coverage = observation
-                        events = self.machine.observe(
-                            class_id=class_id,
-                            pose_present=present,
-                            recognized_steps=recognized_steps,
-                            step_coverage=step_coverage,
-                        )
-                        self._handle_events(events)
+                if update.prediction is not None:
+                    self._process_prediction(update.prediction)
 
         if self.args.preview_state is None:
             self._handle_events(self.machine.tick())
@@ -486,7 +628,16 @@ class LaiaApplication:
 
     def _handle_events(self, events: list[AppEvent]) -> None:
         for event in events:
-            LOGGER.info("Evento: %s value=%s", event.name, event.value)
+            LOGGER.info(
+                format_event_diagnostics(
+                    event,
+                    runtime_state=self.machine.state,
+                    expected_step=self.machine.expected_step,
+                    correct_streak=self.machine.correct_streak,
+                    incorrect_streak=self.machine.incorrect_streak,
+                    accepted_steps=self.machine.accepted_steps,
+                )
+            )
             sound = audio_key_for_event(event.name)
             if sound:
                 self.audio.play(audio_path(sound))
