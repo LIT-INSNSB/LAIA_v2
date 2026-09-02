@@ -31,6 +31,7 @@ logs/*.pre-*
 logs/imported-desktop-log-directory/
 logs/recordings/
 logs/telemetry/
+logs/review/
 *.mp4.partial
 
 # Test captures
