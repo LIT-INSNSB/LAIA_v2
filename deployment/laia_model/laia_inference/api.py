@@ -55,6 +55,19 @@ def _counter_value(value: object) -> int:
         return 0
 
 
+def _pose_timestamp_ms(timestamp_s: float, previous_timestamp_s: float | None) -> int | None:
+    """Return the MediaPipe timestamp only for finite, advancing input."""
+
+    if not math.isfinite(timestamp_s):
+        return None
+    if previous_timestamp_s is not None and timestamp_s <= previous_timestamp_s:
+        return None
+    try:
+        return int(round(timestamp_s * 1000.0))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def _prediction(
     logits: np.ndarray,
     probabilities: np.ndarray,
@@ -153,6 +166,7 @@ class StreamingHandwashingRecognizer:
         self._frame_index = 0
         self._latest_pose_snapshot: PoseSnapshot | None = None
         self._last_emission_window_end_s: float | None = None
+        self._last_pose_timestamp_s: float | None = None
 
     @property
     def latest_pose_snapshot(self) -> PoseSnapshot | None:
@@ -169,6 +183,7 @@ class StreamingHandwashingRecognizer:
         self._frame_index = 0
         self._latest_pose_snapshot = None
         self._last_emission_window_end_s = None
+        self._last_pose_timestamp_s = None
 
     def reset(self) -> None:
         """Reset the recognizer between independent sessions."""
@@ -193,7 +208,17 @@ class StreamingHandwashingRecognizer:
                 f"!= {self.width}x{self.height}"
             )
         timestamp = float(timestamp_s) if timestamp_s is not None else self._frame_index / self.fps
-        detections = self.pose_backend.process(frame, int(round(timestamp * 1000.0)))
+        pose_timestamp_ms = _pose_timestamp_ms(
+            timestamp,
+            getattr(self, "_last_pose_timestamp_s", None),
+        )
+        if pose_timestamp_ms is None:
+            # Keep invalid/non-advancing source timestamps for diagnostics,
+            # but do not manufacture a MediaPipe timestamp or crash the loop.
+            detections = []
+        else:
+            detections = self.pose_backend.process(frame, pose_timestamp_ms)
+            self._last_pose_timestamp_s = timestamp
         tracks_created_before = _counter_value(getattr(self.tracker, "tracks_created", 0))
         track_fragmentation_before = _counter_value(
             getattr(self.tracker, "track_fragmentation", 0)

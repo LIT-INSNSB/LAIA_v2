@@ -244,6 +244,40 @@ class DeploymentContractTests(unittest.TestCase):
             self.assertIsNone(result["prediction_interval_ms"])
             self.assertEqual(recognizer.pose_backend.reset_calls, 1)
 
+    def test_streaming_invalid_timestamp_does_not_crash_or_invent_timing(self) -> None:
+        class PoseBackend:
+            def __init__(self):
+                self.timestamps = []
+
+            def process(self, frame, timestamp_ms):
+                self.timestamps.append(timestamp_ms)
+                return []
+
+            def reset(self):
+                pass
+
+        recognizer = StreamingHandwashingRecognizer.__new__(StreamingHandwashingRecognizer)
+        recognizer.fps = 20.0
+        recognizer.width = 8
+        recognizer.height = 8
+        recognizer.pose_api = "fake"
+        recognizer.pose_backend = PoseBackend()
+        recognizer.tracker = StatefulHandTracker()
+        recognizer.buffer = TemporalPoseBuffer(fps=20.0, duration_seconds=1.5, stride_seconds=0.375)
+        recognizer.classifier = None
+        recognizer._frame_index = 0
+        recognizer._latest_pose_snapshot = None
+        recognizer._last_emission_window_end_s = None
+        recognizer._last_pose_timestamp_s = None
+        frame = np.zeros((8, 8, 3), dtype=np.uint8)
+
+        recognizer.update_frame(frame, timestamp_s=1.0)
+        result = recognizer.update_frame(frame, timestamp_s=float("nan"))
+
+        self.assertEqual(result["status"], "warming_up")
+        self.assertEqual(recognizer.pose_backend.timestamps, [1000])
+        self.assertTrue(np.isnan(recognizer.latest_pose_snapshot.timestamp_s))
+
     def test_tracker_reset_and_non_anatomical_slots(self) -> None:
         tracker = StatefulHandTracker()
         first = tracker.update([detection(0.2), detection(0.7)])
