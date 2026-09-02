@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,15 @@ class PoseSnapshot:
     track_ids: np.ndarray
     tracks_created: int
     track_fragmentation: int
+    tracks_created_delta: int = 0
+    track_fragmentation_delta: int = 0
+
+
+def _counter_value(value: object) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def _prediction(
@@ -142,6 +152,7 @@ class StreamingHandwashingRecognizer:
         self.buffer = TemporalPoseBuffer(fps=self.fps, duration_seconds=1.5, stride_seconds=0.375)
         self._frame_index = 0
         self._latest_pose_snapshot: PoseSnapshot | None = None
+        self._last_emission_window_end_s: float | None = None
 
     @property
     def latest_pose_snapshot(self) -> PoseSnapshot | None:
@@ -157,6 +168,7 @@ class StreamingHandwashingRecognizer:
         self.buffer.reset()
         self._frame_index = 0
         self._latest_pose_snapshot = None
+        self._last_emission_window_end_s = None
 
     def reset(self) -> None:
         """Reset the recognizer between independent sessions."""
@@ -182,14 +194,41 @@ class StreamingHandwashingRecognizer:
             )
         timestamp = float(timestamp_s) if timestamp_s is not None else self._frame_index / self.fps
         detections = self.pose_backend.process(frame, int(round(timestamp * 1000.0)))
-        tracked = self.tracker.update(detections)
-        points, hand_present, track_ids = detections_to_slots(tracked)
-        self.buffer.append(
-            points,
-            hand_present,
-            timestamp_s=timestamp,
-            track_ids=track_ids,
+        tracks_created_before = _counter_value(getattr(self.tracker, "tracks_created", 0))
+        track_fragmentation_before = _counter_value(
+            getattr(self.tracker, "track_fragmentation", 0)
         )
+        tracked = self.tracker.update(detections)
+        tracks_created_after = _counter_value(getattr(self.tracker, "tracks_created", 0))
+        track_fragmentation_after = _counter_value(
+            getattr(self.tracker, "track_fragmentation", 0)
+        )
+        tracks_created_delta = max(0, tracks_created_after - tracks_created_before)
+        track_fragmentation_delta = max(
+            0,
+            track_fragmentation_after - track_fragmentation_before,
+        )
+        points, hand_present, track_ids = detections_to_slots(tracked)
+        try:
+            self.buffer.append(
+                points,
+                hand_present,
+                timestamp_s=timestamp,
+                track_ids=track_ids,
+                tracks_created_delta=tracks_created_delta,
+                track_fragmentation_delta=track_fragmentation_delta,
+            )
+        except TypeError as exc:
+            # Keep lightweight test/double buffers with the original append
+            # contract usable; the production buffer accepts both deltas.
+            if "unexpected keyword argument" not in str(exc):
+                raise
+            self.buffer.append(
+                points,
+                hand_present,
+                timestamp_s=timestamp,
+                track_ids=track_ids,
+            )
         self._latest_pose_snapshot = PoseSnapshot(
             timestamp_s=timestamp,
             source_frame_count=self._frame_index + 1,
@@ -198,6 +237,8 @@ class StreamingHandwashingRecognizer:
             track_ids=_readonly_copy(track_ids, dtype=np.int32),
             tracks_created=int(self.tracker.tracks_created),
             track_fragmentation=int(self.tracker.track_fragmentation),
+            tracks_created_delta=tracks_created_delta,
+            track_fragmentation_delta=track_fragmentation_delta,
         )
         self._frame_index += 1
 
@@ -216,7 +257,23 @@ class StreamingHandwashingRecognizer:
                 "pose_api": self.pose_api,
             }
 
-        window_points, window_hands, timestamps, _ = self.buffer.arrays()
+        window_points, window_hands, _, _ = self.buffer.arrays()
+        window_diagnostics = self.buffer.window_diagnostics()
+        window_end_s = window_diagnostics.get("window_end_s")
+        prediction_interval_ms: float | None = None
+        try:
+            current_window_end = float(window_end_s)
+        except (TypeError, ValueError, OverflowError):
+            current_window_end = None
+        if current_window_end is not None and math.isfinite(current_window_end):
+            previous_window_end = self._last_emission_window_end_s
+            if previous_window_end is None:
+                prediction_interval_ms = None
+            else:
+                interval_ms = (current_window_end - previous_window_end) * 1000.0
+                if math.isfinite(interval_ms) and interval_ms >= 0.0:
+                    prediction_interval_ms = interval_ms
+        window_diagnostics["prediction_interval_ms"] = prediction_interval_ms
         result = predict_pose_window(
             self.classifier,
             window_points,
@@ -225,13 +282,14 @@ class StreamingHandwashingRecognizer:
             height=self.height,
             fps=self.fps,
         )
+        if current_window_end is not None and math.isfinite(current_window_end):
+            self._last_emission_window_end_s = current_window_end
         result.update(
             {
-                "window_start_s": float(timestamps[0]),
-                "window_end_s": float(timestamps[-1]),
                 "pose_api": self.pose_api,
                 "tracks_created": int(self.tracker.tracks_created),
                 "track_fragmentation": int(self.tracker.track_fragmentation),
+                **window_diagnostics,
             }
         )
         return result
