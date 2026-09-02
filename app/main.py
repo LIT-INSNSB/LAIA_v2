@@ -68,6 +68,142 @@ def _log_float(value: object) -> str:
     return f"{result:.3f}" if math.isfinite(result) else "none"
 
 
+def _log_score(value: object) -> str:
+    """Format model scores without erasing small but valid probabilities."""
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return "none"
+    return format(result, ".10g") if math.isfinite(result) else "none"
+
+
+def _log_bool(value: object) -> str:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return "none"
+
+
+def _score_vector(value: object) -> list[float | None] | None:
+    try:
+        values = list(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if len(values) != 7:
+        return None
+    result: list[float | None] = []
+    for item in values:
+        try:
+            number = float(item)
+        except (TypeError, ValueError, OverflowError):
+            result.append(None)
+            continue
+        result.append(number if math.isfinite(number) else None)
+    return result
+
+
+def _score_index(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        index = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return index if index in range(7) else None
+
+
+def _score_diagnostic_fields(
+    prediction: Mapping[str, object],
+    *,
+    expected_step: object,
+) -> list[str]:
+    logits = _score_vector(prediction.get("logits"))
+    probabilities = _score_vector(prediction.get("probabilities"))
+    fields = []
+    for index in range(7):
+        fields.append(
+            f"logit{index}={_log_score(logits[index] if logits is not None else None)}"
+        )
+    for index in range(7):
+        fields.append(
+            f"p{index}={_log_score(probabilities[index] if probabilities is not None else None)}"
+        )
+
+    expected_index = _score_index(expected_step)
+    class_id = _score_index(prediction.get("class_id"))
+    valid_probabilities = probabilities is not None and all(
+        value is not None for value in probabilities
+    )
+    valid_logits = logits is not None and all(value is not None for value in logits)
+    ranked: list[int] | None = None
+    if valid_probabilities:
+        ranked = sorted(
+            range(7),
+            key=lambda index: (-float(probabilities[index]), index),
+        )
+
+    p_expected: float | None = None
+    expected_rank: int | None = None
+    probability_margin: float | None = None
+    if ranked is not None and expected_index is not None:
+        p_expected = float(probabilities[expected_index])
+        expected_rank = ranked.index(expected_index) + 1
+        probability_margin = p_expected - max(
+            float(probabilities[index]) for index in range(7) if index != expected_index
+        )
+
+    logit_margin: float | None = None
+    if valid_logits and expected_index is not None:
+        logit_margin = float(logits[expected_index]) - max(
+            float(logits[index]) for index in range(7) if index != expected_index
+        )
+
+    entropy_nats: float | None = None
+    if valid_probabilities:
+        try:
+            entropy_nats = -sum(
+                float(probability) * math.log(float(probability))
+                for probability in probabilities
+                if float(probability) > 0.0
+            )
+            if not math.isfinite(entropy_nats):
+                entropy_nats = None
+        except (ValueError, OverflowError):
+            entropy_nats = None
+
+    top1_probability = (
+        float(probabilities[class_id])
+        if valid_probabilities and class_id is not None
+        else None
+    )
+    top2 = ranked[1] if ranked is not None else None
+    top2_probability = (
+        float(probabilities[top2])
+        if top2 is not None and valid_probabilities
+        else None
+    )
+    argmax_check = (
+        ranked is not None and class_id is not None and ranked[0] == class_id
+    )
+    fields.extend(
+        (
+            f"p_expected={_log_score(p_expected)}",
+            f"expected_rank={_log_int(expected_rank)}",
+            f"top1={_log_int(prediction.get('class_id'))}",
+            f"top1_probability={_log_score(top1_probability)}",
+            f"top2={_log_int(top2)}",
+            f"top2_probability={_log_score(top2_probability)}",
+            f"probability_margin={_log_score(probability_margin)}",
+            f"logit_margin={_log_score(logit_margin)}",
+            f"entropy_nats={_log_score(entropy_nats)}",
+            f"argmax_check={_log_bool(argmax_check if ranked is not None else None)}",
+        )
+    )
+    return fields
+
+
 def _log_steps(values: Iterable[object] | None) -> str:
     if values is None:
         return "none"
@@ -114,28 +250,70 @@ def format_prediction_diagnostics(
     accepted_steps: Iterable[object] | None,
     events: Iterable[AppEvent] | None,
     session_id: object = "none",
+    reset_generation: object = None,
+    window_diagnostics: Mapping[str, object] | None = None,
 ) -> str:
     status = prediction.get("status")
     is_prediction = status == "prediction"
-    return (
-        "Prediction: "
-        f"session_id={_log_token(session_id)} "
-        f"status={_log_token(status)} "
-        f"expected_step={_log_int(expected_step)} "
-        f"predicted_class={_log_int(prediction.get('class_id') if is_prediction else None)} "
-        f"class_name={_log_token(prediction.get('class_name') if is_prediction else None)} "
-        f"confidence={_log_float(prediction.get('confidence_uncalibrated') if is_prediction else None)} "
-        f"pose_coverage={_log_float(prediction.get('pose_coverage_ge1'))} "
-        f"pose_coverage_2={_log_float(prediction.get('pose_coverage_2'))} "
-        f"correct_streak={_log_int(correct_streak)} "
-        f"incorrect_streak={_log_int(incorrect_streak)} "
-        f"runtime_state={_state_token(runtime_state)} "
-        f"accepted_steps={_log_steps(accepted_steps)} "
-        f"events={_log_event_names(events)} "
-        f"track_fragmentation={_log_int(prediction.get('track_fragmentation'))} "
-        f"tracks_created={_log_int(prediction.get('tracks_created'))} "
-        f"source_frame_count={_log_int(prediction.get('source_frame_count'))}"
+    supplemental = window_diagnostics or {}
+
+    def diagnostic_value(key: str) -> object:
+        return prediction[key] if key in prediction else supplemental.get(key)
+
+    generation = (
+        reset_generation
+        if reset_generation is not None
+        else prediction.get("reset_generation")
     )
+    fields = [
+        "schema=prediction_v2",
+        f"session_id={_log_token(session_id)}",
+        f"status={_log_token(status)}",
+        f"reset_generation={_log_int(generation)}",
+        f"expected_step={_log_int(expected_step)}",
+        f"predicted_class={_log_int(prediction.get('class_id') if is_prediction else None)}",
+        f"class_name={_log_token(prediction.get('class_name') if is_prediction else None)}",
+        f"confidence={_log_float(prediction.get('confidence_uncalibrated') if is_prediction else None)}",
+        f"pose_coverage={_log_float(prediction.get('pose_coverage_ge1'))}",
+        f"pose_coverage_2={_log_float(prediction.get('pose_coverage_2'))}",
+        f"correct_streak={_log_int(correct_streak)}",
+        f"incorrect_streak={_log_int(incorrect_streak)}",
+        f"runtime_state={_state_token(runtime_state)}",
+        f"accepted_steps={_log_steps(accepted_steps)}",
+        f"events={_log_event_names(events)}",
+        f"track_fragmentation={_log_int(prediction.get('track_fragmentation'))}",
+        f"tracks_created={_log_int(prediction.get('tracks_created'))}",
+        f"source_frame_count={_log_int(prediction.get('source_frame_count'))}",
+    ]
+    if is_prediction:
+        fields.extend(_score_diagnostic_fields(prediction, expected_step=expected_step))
+
+    if status in {"prediction", "insufficient_pose"}:
+        fields.extend(
+            (
+                f"timing_valid={_log_bool(diagnostic_value('timing_valid'))}",
+                f"window_start_s={_log_score(diagnostic_value('window_start_s'))}",
+                f"window_end_s={_log_score(diagnostic_value('window_end_s'))}",
+                f"window_span_s={_log_score(diagnostic_value('window_span_s'))}",
+                f"effective_window_fps={_log_score(diagnostic_value('effective_window_fps'))}",
+                f"mean_frame_dt_ms={_log_score(diagnostic_value('mean_frame_dt_ms'))}",
+                f"min_frame_dt_ms={_log_score(diagnostic_value('min_frame_dt_ms'))}",
+                f"max_frame_dt_ms={_log_score(diagnostic_value('max_frame_dt_ms'))}",
+                f"prediction_interval_ms={_log_score(diagnostic_value('prediction_interval_ms'))}",
+                f"frames_0_hands={_log_int(diagnostic_value('frames_0_hands'))}",
+                f"frames_1_hand={_log_int(diagnostic_value('frames_1_hand'))}",
+                f"frames_2_hands={_log_int(diagnostic_value('frames_2_hands'))}",
+                f"fraction_2_hands={_log_score(diagnostic_value('fraction_2_hands'))}",
+                f"track_changes_in_window={_log_int(diagnostic_value('track_changes_in_window'))}",
+                f"new_tracks_in_window={_log_int(diagnostic_value('new_tracks_in_window'))}",
+                f"track_fragmentations_in_window={_log_int(diagnostic_value('track_fragmentations_in_window'))}",
+                f"slot_changes_in_window={_log_int(diagnostic_value('slot_changes_in_window'))}",
+                f"unique_tracks_in_window={_log_int(diagnostic_value('unique_tracks_in_window'))}",
+                f"hand_dropout_count={_log_int(diagnostic_value('hand_dropout_count'))}",
+                f"longest_two_hand_segment_frames={_log_int(diagnostic_value('longest_two_hand_segment_frames'))}",
+            )
+        )
+    return "Prediction: " + " ".join(fields)
 
 
 def format_event_diagnostics(
@@ -560,7 +738,12 @@ class LaiaApplication:
             return None, False, set(), None
         return None
 
-    def _process_prediction(self, prediction: dict) -> list[AppEvent] | None:
+    def _process_prediction(
+        self,
+        prediction: dict,
+        *,
+        reset_generation: object = None,
+    ) -> list[AppEvent] | None:
         observation = self._prediction_to_observation(prediction)
         if observation is None:
             return None
@@ -584,6 +767,7 @@ class LaiaApplication:
                 accepted_steps=self.machine.accepted_steps,
                 events=events,
                 session_id=session_id,
+                reset_generation=reset_generation,
             )
         )
         return events
@@ -630,7 +814,10 @@ class LaiaApplication:
                     if diagnostics is not None:
                         diagnostics.finish("runtime_error")
                 if update.prediction is not None:
-                    events = self._process_prediction(update.prediction) or []
+                    events = self._process_prediction(
+                        update.prediction,
+                        reset_generation=update.inference_generation,
+                    ) or []
                     diagnostics = getattr(self, "diagnostics", None)
                     if diagnostics is not None:
                         diagnostics.offer_runtime_update(
